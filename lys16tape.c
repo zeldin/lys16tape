@@ -23,6 +23,8 @@ static FILE *out_data = NULL;
 static FILE *out_file = NULL;
 static FILE *out_gnuplot = NULL;
 static unsigned gnuplot_min = 0, gnuplot_max = UINT_MAX;
+static unsigned data_number = 0;
+static const char *data_fn = NULL;
 
 static void analyze_block(const unsigned char *header, const unsigned char *data)
 {
@@ -53,7 +55,7 @@ static void analyze_block(const unsigned char *header, const unsigned char *data
   printf("\n");
 }
 
-static void got_bits(unsigned n, unsigned data, unsigned bitcnt)
+static int got_bits(unsigned n, unsigned data, unsigned bitcnt)
 {
   static unsigned mode = WAIT_HEADER, pos = 0;
   static unsigned char databuf[0x8000], header[4];
@@ -61,11 +63,24 @@ static void got_bits(unsigned n, unsigned data, unsigned bitcnt)
   /* 8N2 */
   if (data&1)
     /* No start bit */
-    return;
+    return 0;
   if (bitcnt < 11 || ((data>>9)&3) != 3)
     /* Missing stop bits */
-    return;
+    return 0;
   data = (data>>1)&0xff;
+
+  if (out_data == NULL && data_fn != NULL) {
+    char *fn;
+    if (asprintf(&fn, data_fn, ++data_number) < 0) {
+      fprintf(stderr, "Out of memory\n");
+      return 1;
+    }
+    if (!(out_data = fopen(fn, "w")))
+      perror(fn);
+    free(fn);
+    if (!out_data)
+      return 1;
+  }
 
   if (out_data != NULL)
     fputc(data, out_data);
@@ -95,22 +110,25 @@ static void got_bits(unsigned n, unsigned data, unsigned bitcnt)
     analyze_block(header, databuf);
     pos = 0;
   }
+
+  return 0;
 }
 
-static void emit(unsigned n, unsigned v, double l)
+static int emit(unsigned n, unsigned v, double l)
 {
   static unsigned bitcnt = 0;
   static unsigned data = 0;
+  int r = 0;
   if(v == VALUE_NONE) {
     if (bitcnt)
-      got_bits(n, data, bitcnt);
+      r = got_bits(n, data, bitcnt);
     bitcnt = 0;
     data = 0;
-    return;
+    return r;
   }
   unsigned cnt = round(l);
   if (v == VALUE_0 && bitcnt >= 10) {
-    got_bits(n, data, bitcnt);
+    r = got_bits(n, data, bitcnt);
     bitcnt = 0;
     data = 0;
   }
@@ -119,6 +137,7 @@ static void emit(unsigned n, unsigned v, double l)
     data |= ((1U<<xcnt)-1) << bitcnt;
   }
   bitcnt += cnt;
+  return r;
 }
 
 static void butterworth3(unsigned fs, unsigned f0, double *a, double *b)
@@ -197,11 +216,17 @@ static int process(FILE *f, unsigned fs, unsigned br, unsigned k)
 
       if (v != last_value) {
 	if (last_pos != n)
-	  emit(last_pos, last_value, (n-last_pos)/samplesperbit);
+	  if (emit(last_pos, last_value, (n-last_pos)/samplesperbit))
+	    return 1;
 	if (last_value == VALUE_NONE)
 	  printf("Signal detected at %u\n", n);
-	else if (v == VALUE_NONE)
+	else if (v == VALUE_NONE) {
 	  printf("Signal lost at %u\n", n);
+	  if (out_data != NULL) {
+	    fclose(out_data);
+	    out_data = NULL;
+	  }
+	}
 	last_pos = n;
 	last_value = v;
       }
@@ -249,6 +274,32 @@ unsigned getrate(const char *fn)
   return rate;
 }
 
+static int check_format(const char *fmt, const char *allowed)
+{
+  const char *c = strchr(fmt, '%');
+  while (c && c[1] == '%')
+    c = strchr(c+2, '%');
+  if (strchr(c+1, '%')) {
+    fprintf(stderr, "Error: Multiple %% conversions found in filename\n");
+    return 1;
+  }
+  while(*++c)
+    if (strchr(allowed, *c))
+      return 0;
+    else switch(*c) {
+    case '#': case '0': case '1': case '2': case '3': case '4': case '5':
+    case '6': case '7': case '8': case '9': case '-': case ' ': case '+':
+    case '\'': case 'I': case '.':
+      /* Allowed modifier */
+      break;
+    default:
+      fprintf(stderr, "Error: Unallowed %% conversion found in filename\n");
+      return 1;
+    }
+  fprintf(stderr, "Error: Unterminated %% conversion found in filename\n");
+  return 1;
+}
+
 static const char usage[] =
   "Usage: %s [options] input_audio_file\n"
   "  -l          Use left channel of audiofile\n"
@@ -259,6 +310,7 @@ static const char usage[] =
   "  -G file     Write gzipped gnuplot data to file\n"
   "  -s pos      Start position for gnuplot data\n"
   "  -e pos      End position for gnuplot data\n"
+  "  -D file     Write raw data to file, use %%u for index number\n"
   ;
 
 int main(int argc, char *argv[])
@@ -270,7 +322,7 @@ int main(int argc, char *argv[])
   const char *mix = "1";
   unsigned baud = 600, k = 0;
 
-  while ((opt = getopt(argc, argv, "lrmk:b:G:s:e:")) != -1)
+  while ((opt = getopt(argc, argv, "lrmk:b:G:s:e:D:")) != -1)
     switch (opt) {
     case 'l': mix = "1"; break;
     case 'r': mix = "2"; break;
@@ -289,6 +341,11 @@ int main(int argc, char *argv[])
       break;
     case 'e':
       gnuplot_max = atoi(optarg);
+      break;
+    case 'D':
+      if (check_format(optarg, "uxXo"))
+	return 1;
+      data_fn = optarg;
       break;
     default:
       fprintf(stderr, usage, argv[0]);
