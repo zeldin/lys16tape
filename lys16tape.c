@@ -28,14 +28,20 @@ static unsigned gnuplot_min = 0, gnuplot_max = UINT_MAX;
 static unsigned data_number = 0;
 static const char *data_fn = NULL;
 static const char *file_dir = NULL;
+static unsigned num_blocks = 0, num_csum_errors = 0;
 
 static int analyze_block(const unsigned char *header, const unsigned char *data)
 {
   static const char *types[] = { "TITLE", "???", "DATA", "END" };
+  int transient = 0;
   unsigned len = (header[0]<<8)|header[1];
   unsigned type = len>>14;
   len &= 0x3fff;
   printf("BLOCK type %u (%s) len %u", type, types[type], len);
+  if (type == 0) {
+    num_blocks = 0;
+    num_csum_errors = 0;
+  }
   if (type == 0 && file_dir != NULL) {
     char *fn, *p;
     if (out_file != NULL) {
@@ -72,18 +78,35 @@ static int analyze_block(const unsigned char *header, const unsigned char *data)
       csum += v;
       csum &= 0xffff;
     }
-    if (csum == hdrcsum)
+    printf(" #%u", num_blocks++);
+    if (csum == hdrcsum) {
       printf(" csum ok");
-    else
+      transient = 1;
+    } else {
       printf(" csum mismatch %04x != %04x (%04x)", csum, hdrcsum, (hdrcsum-csum)&0xffff);
+      num_csum_errors++;
+    }
     if (out_file != NULL)
       fwrite(data+8, 2, len-4, out_file);
+  }
+  if (type == 3) {
+    printf(" - %u blocks", num_blocks);
+    if (num_csum_errors)
+      printf(", %u with errors", num_csum_errors);
+    else
+      printf(" all ok");
+    num_blocks = 0;
+    num_csum_errors = 0;
   }
   if (type == 3 && out_file != NULL) {
     fclose(out_file);
     out_file = NULL;
   }
-  printf("\n");
+  if (transient) {
+    printf("\r");
+    fflush(stdout);
+  } else
+    printf("\n");
   return 0;
 }
 
