@@ -6,6 +6,8 @@
 #include <math.h>
 #include <unistd.h>
 #include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 enum {
   VALUE_0,
@@ -25,14 +27,43 @@ static FILE *out_gnuplot = NULL;
 static unsigned gnuplot_min = 0, gnuplot_max = UINT_MAX;
 static unsigned data_number = 0;
 static const char *data_fn = NULL;
+static const char *file_dir = NULL;
 
-static void analyze_block(const unsigned char *header, const unsigned char *data)
+static int analyze_block(const unsigned char *header, const unsigned char *data)
 {
   static const char *types[] = { "TITLE", "???", "DATA", "END" };
   unsigned len = (header[0]<<8)|header[1];
   unsigned type = len>>14;
   len &= 0x3fff;
   printf("BLOCK type %u (%s) len %u", type, types[type], len);
+  if (type == 0 && file_dir != NULL) {
+    char *fn, *p;
+    if (out_file != NULL) {
+      fclose(out_file);
+      out_file = NULL;
+    }
+    if (asprintf(&fn, "%s%s%.*s", file_dir,
+		 (file_dir[strlen(file_dir)-1]=='/'? "" : "/"),
+		 len*2-4, data+4) < 0) {
+      fprintf(stderr, "Out of memory\n");
+      return 1;
+    }
+    p = &fn[strlen(file_dir)-1];
+    if (*p!='/') p++;
+    p++;
+    while ((p=strchr(p, '/')))
+      *p++ = '_';
+    out_file = fopen(fn, "w");
+    if (out_file)
+      printf(" - Write to file %s", fn);
+    else {
+      printf("\n");
+      perror(fn);
+    }
+    free(fn);
+    if (!out_file)
+      return 1;
+  }
   if (type == 2) {
     unsigned i, hdrcsum, csum = 0;
     hdrcsum = (header[2]<<8)|header[3];
@@ -53,6 +84,7 @@ static void analyze_block(const unsigned char *header, const unsigned char *data
     out_file = NULL;
   }
   printf("\n");
+  return 0;
 }
 
 static int got_bits(unsigned n, unsigned data, unsigned bitcnt)
@@ -107,8 +139,8 @@ static int got_bits(unsigned n, unsigned data, unsigned bitcnt)
       mode = WAIT_HEADER;
   }
   if (mode == WAIT_HEADER && pos > 0) {
-    analyze_block(header, databuf);
     pos = 0;
+    return analyze_block(header, databuf);
   }
 
   return 0;
@@ -222,6 +254,10 @@ static int process(FILE *f, unsigned fs, unsigned br, unsigned k)
 	  printf("Signal detected at %u\n", n);
 	else if (v == VALUE_NONE) {
 	  printf("Signal lost at %u\n", n);
+	  if (out_file != NULL) {
+	    fclose(out_file);
+	    out_file = NULL;
+	  }
 	  if (out_data != NULL) {
 	    fclose(out_data);
 	    out_data = NULL;
@@ -300,6 +336,24 @@ static int check_format(const char *fmt, const char *allowed)
   return 1;
 }
 
+static int check_dir(const char *fn)
+{
+  struct stat s;
+  if (!*fn) {
+    fprintf(stderr, "Empty directory name specified!\n");
+    return 1;
+  }
+  if (stat(fn, &s)<0) {
+    perror(fn);
+    return 1;
+  }
+  if (!S_ISDIR(s.st_mode)) {
+    fprintf(stderr, "%s: Not a directory\n", fn);
+    return 1;
+  }
+  return 0;
+}
+
 static const char usage[] =
   "Usage: %s [options] input_audio_file\n"
   "  -l          Use left channel of audiofile\n"
@@ -311,7 +365,8 @@ static const char usage[] =
   "  -s pos      Start position for gnuplot data\n"
   "  -e pos      End position for gnuplot data\n"
   "  -D file     Write raw data to file, use %%u for index number\n"
-  ;
+  "  -F dir      Extract files into dir, load address will be discarded\n"
+;
 
 int main(int argc, char *argv[])
 {
@@ -322,7 +377,7 @@ int main(int argc, char *argv[])
   const char *mix = "1";
   unsigned baud = 600, k = 0;
 
-  while ((opt = getopt(argc, argv, "lrmk:b:G:s:e:D:")) != -1)
+  while ((opt = getopt(argc, argv, "lrmk:b:G:s:e:D:F:")) != -1)
     switch (opt) {
     case 'l': mix = "1"; break;
     case 'r': mix = "2"; break;
@@ -346,6 +401,11 @@ int main(int argc, char *argv[])
       if (check_format(optarg, "uxXo"))
 	return 1;
       data_fn = optarg;
+      break;
+    case 'F':
+      if (check_dir(optarg))
+	return 1;
+      file_dir = optarg;
       break;
     default:
       fprintf(stderr, usage, argv[0]);
