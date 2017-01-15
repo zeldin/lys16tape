@@ -197,6 +197,10 @@ static int process(FILE *f, unsigned fs, unsigned br, unsigned k)
       if (v != last_value) {
 	if (last_pos != n)
 	  emit(last_pos, last_value, (n-last_pos)/samplesperbit);
+	if (last_value == VALUE_NONE)
+	  printf("Signal detected at %u\n", n);
+	else if (v == VALUE_NONE)
+	  printf("Signal lost at %u\n", n);
 	last_pos = n;
 	last_value = v;
       }
