@@ -53,7 +53,7 @@ static void analyze_block(const unsigned char *header, const unsigned char *data
   printf("\n");
 }
 
-static void got_bits(unsigned data, unsigned bitcnt)
+static void got_bits(unsigned n, unsigned data, unsigned bitcnt)
 {
   static unsigned mode = WAIT_HEADER, pos = 0;
   static unsigned char databuf[0x8000], header[4];
@@ -71,8 +71,9 @@ static void got_bits(unsigned data, unsigned bitcnt)
     fputc(data, out_data);
 
   if (mode == WAIT_HEADER) {
-    if (data == 0x02)
+    if (data == 0x02) {
       mode = READ_HEADER;
+    }
   } else if (mode == READ_HEADER) {
     header[pos++] = data;
     if (pos == 4) {
@@ -102,14 +103,14 @@ static void emit(unsigned n, unsigned v, double l)
   static unsigned data = 0;
   if(v == VALUE_NONE) {
     if (bitcnt)
-      got_bits(data, bitcnt);
+      got_bits(n, data, bitcnt);
     bitcnt = 0;
     data = 0;
     return;
   }
   unsigned cnt = round(l);
   if (v == VALUE_0 && bitcnt >= 10) {
-    got_bits(data, bitcnt);
+    got_bits(n, data, bitcnt);
     bitcnt = 0;
     data = 0;
   }
