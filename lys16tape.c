@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
 
 enum {
   VALUE_0,
@@ -149,6 +150,11 @@ static int process(FILE *f, unsigned fs, unsigned br, unsigned k)
   double samplesperbit = ((double)fs)/br;
   unsigned agcdelay = round(samplesperbit);
 
+  if (k >= 256 || agcdelay >= 256) {
+    fprintf(stderr, "Wraparound error!\n");
+    return 1;
+  }
+
   butterworth3(fs, br, a, b);
 
   for(i=0; i<256; i++) {
@@ -230,19 +236,46 @@ unsigned getrate(const char *fn)
   return rate;
 }
 
+static const char usage[] =
+  "Usage: %s [options] input_audio_file\n"
+  "  -l          Use left channel of audiofile\n"
+  "  -r          Use right channel of audiofile\n"
+  "  -m          Use L+R mix of audiofile\n"
+  "  -k number   Specify k for FSK decoder\n"
+  "  -b baud     Specify baudrate for data signal\n"
+  ;
+
 int main(int argc, char *argv[])
 {
   const char *fn;
-  int r;
+  int r, opt;
   FILE *f;
   unsigned rate;
+  const char *mix = "1";
+  unsigned baud = 600, k = 10;
 
-  if (argc != 2) {
-    fprintf(stderr, "Usage: %s input_audio_file\n", argv[0]);
+  while ((opt = getopt(argc, argv, "lrmk:b:")) != -1)
+    switch (opt) {
+    case 'l': mix = "1"; break;
+    case 'r': mix = "2"; break;
+    case 'm': mix = "1-2"; break;
+    case 'k':
+      k = atoi(optarg);
+      break;
+    case 'b':
+      baud = atoi(optarg);
+      break;
+    default:
+      fprintf(stderr, usage, argv[0]);
+      return 1;
+    }
+
+  if (argc != optind+1) {
+    fprintf(stderr, usage, argv[0]);
     return 1;
   }
 
-  fn = argv[1];
+  fn = argv[optind];
 
   if (strchr(fn, '\'') || strchr(fn, '\\')) {
     fprintf(stderr, "Input filename must not contain ' or \\.\n");
@@ -251,10 +284,10 @@ int main(int argc, char *argv[])
 
   if (!(rate  = getrate(fn)))
     return 1;
-  if (!(f = vapopen("r", "sox '%s' -t raw -e floating-point -b 32 - remix 2",
-		    fn)))
+  if (!(f = vapopen("r", "sox '%s' -t raw -e floating-point -b 32 - remix %s",
+		    fn, mix)))
     return 1;
-  r = process(f, rate, 600, 10);
+  r = process(f, rate, baud, k);
   pclose(f);
   if (out_data != NULL)
     fclose(out_data);
