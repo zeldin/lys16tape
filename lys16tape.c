@@ -132,6 +132,8 @@ static int got_bits(unsigned n, unsigned data, unsigned bitcnt)
     }
     if (!(out_data = fopen(fn, "w")))
       perror(fn);
+    else
+      printf("Writing raw data to file %s\n", fn);
     free(fn);
     if (!out_data)
       return 1;
