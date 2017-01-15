@@ -186,7 +186,8 @@ static int process(FILE *f, unsigned fs, unsigned br, unsigned k)
 
       o *= gain;
 
-      if (gain > 1000000.0)
+      if (gain > 1000000.0 ||
+	  (last_value == VALUE_NONE && gain > 1000.0))
 	v = VALUE_NONE;
       else if (o < 0.4)
 	v = VALUE_0;
