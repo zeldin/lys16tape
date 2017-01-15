@@ -268,7 +268,7 @@ int main(int argc, char *argv[])
   FILE *f;
   unsigned rate;
   const char *mix = "1";
-  unsigned baud = 600, k = 10;
+  unsigned baud = 600, k = 0;
 
   while ((opt = getopt(argc, argv, "lrmk:b:G:s:e:")) != -1)
     switch (opt) {
@@ -314,6 +314,16 @@ int main(int argc, char *argv[])
 
   if (!(rate  = getrate(fn)))
     return 1;
+
+  if (k == 0)
+    switch(rate) {
+    case 44100: k=10; break;
+    case 48000: k=11; break;
+    default:
+      fprintf(stderr, "Don't know what k to use for samplerate %u, please use -k\n", rate);
+      return 1;
+    }
+
   if (!(f = vapopen("r", "sox '%s' -t raw -e floating-point -b 32 - remix %s",
 		    fn, mix)))
     return 1;
