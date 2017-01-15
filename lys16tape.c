@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include <unistd.h>
+#include <limits.h>
 
 enum {
   VALUE_0,
@@ -20,6 +21,8 @@ enum {
 
 static FILE *out_data = NULL;
 static FILE *out_file = NULL;
+static FILE *out_gnuplot = NULL;
+static unsigned gnuplot_min = 0, gnuplot_max = UINT_MAX;
 
 static void analyze_block(const unsigned char *header, const unsigned char *data)
 {
@@ -197,6 +200,10 @@ static int process(FILE *f, unsigned fs, unsigned br, unsigned k)
 	last_value = v;
       }
 
+      if (out_gnuplot && n >= gnuplot_min && n < gnuplot_max)
+	fprintf(out_gnuplot, "%u %f %f %f %f\n",
+		n, s[(n&255)], y[(n&255)], o, gain);
+
       n++;
     }
   if (ferror(f)) {
@@ -243,18 +250,21 @@ static const char usage[] =
   "  -m          Use L+R mix of audiofile\n"
   "  -k number   Specify k for FSK decoder\n"
   "  -b baud     Specify baudrate for data signal\n"
+  "  -G file     Write gzipped gnuplot data to file\n"
+  "  -s pos      Start position for gnuplot data\n"
+  "  -e pos      End position for gnuplot data\n"
   ;
 
 int main(int argc, char *argv[])
 {
-  const char *fn;
+  const char *fn, *gnuplot_fn = NULL;
   int r, opt;
   FILE *f;
   unsigned rate;
   const char *mix = "1";
   unsigned baud = 600, k = 10;
 
-  while ((opt = getopt(argc, argv, "lrmk:b:")) != -1)
+  while ((opt = getopt(argc, argv, "lrmk:b:G:s:e:")) != -1)
     switch (opt) {
     case 'l': mix = "1"; break;
     case 'r': mix = "2"; break;
@@ -264,6 +274,15 @@ int main(int argc, char *argv[])
       break;
     case 'b':
       baud = atoi(optarg);
+      break;
+    case 'G':
+      gnuplot_fn = optarg;
+      break;
+    case 's':
+      gnuplot_min = atoi(optarg);
+      break;
+    case 'e':
+      gnuplot_max = atoi(optarg);
       break;
     default:
       fprintf(stderr, usage, argv[0]);
@@ -282,16 +301,28 @@ int main(int argc, char *argv[])
     return 1;
   }
 
+  if (gnuplot_fn && (strchr(gnuplot_fn, '\'') || strchr(gnuplot_fn, '\\'))) {
+    fprintf(stderr, "Output filename must not contain ' or \\.\n");
+    return 1;
+  }
+
   if (!(rate  = getrate(fn)))
     return 1;
   if (!(f = vapopen("r", "sox '%s' -t raw -e floating-point -b 32 - remix %s",
 		    fn, mix)))
     return 1;
-  r = process(f, rate, baud, k);
+
+  if (gnuplot_fn != NULL &&
+      !(out_gnuplot = vapopen("w", "gzip -c > '%s'", gnuplot_fn)))
+    r = 1;
+  else
+    r = process(f, rate, baud, k);
   pclose(f);
   if (out_data != NULL)
     fclose(out_data);
   if (out_file != NULL)
     fclose(out_file);
+  if (out_gnuplot != NULL)
+    pclose(out_gnuplot);
   return r;
 }
