@@ -266,9 +266,9 @@ static int process(FILE *f, unsigned fs, unsigned br, unsigned k)
       if (gain > 1000000.0 ||
 	  (last_value == VALUE_NONE && gain > 1000.0))
 	v = VALUE_NONE;
-      else if (o < 0.4)
+      else if (o > 0.1)
 	v = VALUE_0;
-      else if (o > 0.5)
+      else if (o < -0.1)
 	v = VALUE_1;
 
       if (v != last_value) {
@@ -458,11 +458,27 @@ int main(int argc, char *argv[])
     return 1;
 
   if (k == 0)
-    switch(rate) {
-    case 44100: k=10; break;
-    case 48000: k=11; break;
+    switch(baud) {
+    case 1200:
+      switch(rate) {
+      case 44100: k=10; break;
+      case 48000: k=11; break;
+      default:
+	fprintf(stderr, "Don't know what k to use for samplerate %u, please use -k\n", rate);
+	return 1;
+      }
+      break;
+    case 600:
+      switch(rate) {
+      case 44100: k=15; break;
+      case 48000: k=17; break;
+      default:
+	fprintf(stderr, "Don't know what k to use for samplerate %u, please use -k\n", rate);
+	return 1;
+      }
+      break;
     default:
-      fprintf(stderr, "Don't know what k to use for samplerate %u, please use -k\n", rate);
+      fprintf(stderr, "Don't know what k to use for baudrate %u, please use -k\n", baud);
       return 1;
     }
 
