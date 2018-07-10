@@ -29,6 +29,7 @@ static unsigned data_number = 0;
 static const char *data_fn = NULL;
 static const char *file_dir = NULL;
 static unsigned num_blocks = 0, num_csum_errors = 0;
+static unsigned num_stopbits = 1;
 
 static int analyze_block(const unsigned char *header, const unsigned char *data)
 {
@@ -114,6 +115,7 @@ static int got_bits(unsigned n, unsigned data, unsigned bitcnt)
 {
   static unsigned mode = WAIT_HEADER, pos = 0;
   static unsigned char databuf[0x8000], header[4];
+  unsigned stopbit_mask = (1U<<num_stopbits)-1;
 
   if (!bitcnt) {
     mode = WAIT_HEADER;
@@ -125,7 +127,7 @@ static int got_bits(unsigned n, unsigned data, unsigned bitcnt)
   if (data&1)
     /* No start bit */
     return 0;
-  if (bitcnt < 11 || ((data>>9)&3) != 3)
+  if (bitcnt < 9+num_stopbits || ((data>>9)&stopbit_mask) != stopbit_mask)
     /* Missing stop bits */
     return 0;
   data = (data>>1)&0xff;
@@ -391,6 +393,8 @@ static const char usage[] =
   "  -l          Use left channel of audiofile\n"
   "  -r          Use right channel of audiofile\n"
   "  -m          Use L+R mix of audiofile\n"
+  "  -1          Require 1 stopbit after each byte\n"
+  "  -2          Require 2 stopbits after each byte\n"
   "  -k number   Specify k for FSK decoder\n"
   "  -b baud     Specify baudrate for data signal\n"
   "  -G file     Write gzipped gnuplot data to file\n"
@@ -409,11 +413,13 @@ int main(int argc, char *argv[])
   const char *mix = "1";
   unsigned baud = 600, k = 0;
 
-  while ((opt = getopt(argc, argv, "lrmk:b:G:s:e:D:F:")) != -1)
+  while ((opt = getopt(argc, argv, "lrm12k:b:G:s:e:D:F:")) != -1)
     switch (opt) {
     case 'l': mix = "1"; break;
     case 'r': mix = "2"; break;
     case 'm': mix = "1-2"; break;
+    case '1': num_stopbits = 1; break;
+    case '2': num_stopbits = 2; break;
     case 'k':
       k = atoi(optarg);
       break;
