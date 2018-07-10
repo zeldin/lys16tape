@@ -115,6 +115,12 @@ static int got_bits(unsigned n, unsigned data, unsigned bitcnt)
   static unsigned mode = WAIT_HEADER, pos = 0;
   static unsigned char databuf[0x8000], header[4];
 
+  if (!bitcnt) {
+    mode = WAIT_HEADER;
+    pos = 0;
+    return 0;
+  }
+
   /* 8N2 */
   if (data&1)
     /* No start bit */
@@ -179,6 +185,7 @@ static int emit(unsigned n, unsigned v, double l)
   if(v == VALUE_NONE) {
     if (bitcnt)
       r = got_bits(n, data, bitcnt);
+    got_bits(0, 0, 0);
     bitcnt = 0;
     data = 0;
     return r;
