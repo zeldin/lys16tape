@@ -70,6 +70,8 @@ static int analyze_block(const unsigned char *header, const unsigned char *data)
     free(fn);
     if (!out_file)
       return 1;
+  } else if (type == 0) {
+    printf(" - \"%.*s\"", len*2-4, data+4);
   }
   if (type == 2) {
     unsigned i, hdrcsum, csum = 0;
