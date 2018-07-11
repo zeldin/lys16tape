@@ -40,7 +40,12 @@ static unsigned pack_title(char *title, const unsigned char *data, unsigned len)
     return 0;
   for (i=j=0; i<len; i++)
     if (data[i])
-      title[j++] = data[i];
+      if (data[i]>=32 && data[i]<127)
+	title[j++] = data[i];
+      else
+	title[j++] = '_';
+  while(j>0 && title[j-1] == ' ')
+    --j;
   return j;
 }
 
