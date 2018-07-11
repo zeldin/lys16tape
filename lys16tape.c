@@ -30,6 +30,7 @@ static const char *data_fn = NULL;
 static const char *file_dir = NULL;
 static unsigned num_blocks = 0, num_csum_errors = 0;
 static unsigned num_stopbits = 1;
+static unsigned atew_mode = 0;
 
 static int analyze_block(const unsigned char *header, const unsigned char *data)
 {
@@ -278,9 +279,9 @@ static int process(FILE *f, unsigned fs, unsigned br, unsigned k)
 	  (last_value == VALUE_NONE && gain > 1000.0))
 	v = VALUE_NONE;
       else if (o > 0.1)
-	v = VALUE_0;
+	v = (atew_mode? VALUE_1 : VALUE_0);
       else if (o < -0.1)
-	v = VALUE_1;
+	v = (atew_mode? VALUE_0 : VALUE_1);
 
       if (v != last_value) {
 	if (last_pos != n)
@@ -395,6 +396,7 @@ static const char usage[] =
   "  -l          Use left channel of audiofile\n"
   "  -r          Use right channel of audiofile\n"
   "  -m          Use L+R mix of audiofile\n"
+  "  -a          ATEW mode (invert 0 and 1)\n"
   "  -1          Require 1 stopbit after each byte\n"
   "  -2          Require 2 stopbits after each byte\n"
   "  -k number   Specify k for FSK decoder\n"
@@ -415,11 +417,12 @@ int main(int argc, char *argv[])
   const char *mix = "1";
   unsigned baud = 600, k = 0;
 
-  while ((opt = getopt(argc, argv, "lrm12k:b:G:s:e:D:F:")) != -1)
+  while ((opt = getopt(argc, argv, "lrma12k:b:G:s:e:D:F:")) != -1)
     switch (opt) {
     case 'l': mix = "1"; break;
     case 'r': mix = "2"; break;
     case 'm': mix = "1-2"; break;
+    case 'a': atew_mode = 1; break;
     case '1': num_stopbits = 1; break;
     case '2': num_stopbits = 2; break;
     case 'k':
