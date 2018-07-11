@@ -383,6 +383,8 @@ static int check_format(const char *fmt, const char *allowed)
   const char *c = strchr(fmt, '%');
   while (c && c[1] == '%')
     c = strchr(c+2, '%');
+  if (!c)
+    return 0;
   if (strchr(c+1, '%')) {
     fprintf(stderr, "Error: Multiple %% conversions found in filename\n");
     return 1;
