@@ -32,7 +32,16 @@ static unsigned num_blocks = 0, num_csum_errors = 0;
 static unsigned num_stopbits = 1;
 static unsigned atew_mode = 0;
 
-static int analyze_block(const unsigned char *header, const unsigned char *data)
+static unsigned pack_title(unsigned char *data, unsigned len)
+{
+  unsigned i, j;
+  for (i=j=0; i<len; i++)
+    if (data[i])
+      data[j++] = data[i];
+  return j;
+}
+
+static int analyze_block(const unsigned char *header, unsigned char *data)
 {
   static const char *types[] = { "TITLE", "???", "DATA", "END" };
   int transient = 0;
@@ -44,35 +53,38 @@ static int analyze_block(const unsigned char *header, const unsigned char *data)
     num_blocks = 0;
     num_csum_errors = 0;
   }
-  if (type == 0 && file_dir != NULL) {
-    char *fn, *p;
-    if (out_file != NULL) {
-      fclose(out_file);
-      out_file = NULL;
+  if (type == 0) {
+    len = pack_title(data += 4, len*2 - 4);
+    if (file_dir != NULL) {
+      char *fn, *p;
+      if (out_file != NULL) {
+	fclose(out_file);
+	out_file = NULL;
+      }
+      if (asprintf(&fn, "%s%s%.*s", file_dir,
+		   (file_dir[strlen(file_dir)-1]=='/'? "" : "/"),
+		   len, data) < 0) {
+	fprintf(stderr, "Out of memory\n");
+	return 1;
+      }
+      p = &fn[strlen(file_dir)-1];
+      if (*p!='/') p++;
+      p++;
+      while ((p=strchr(p, '/')))
+	*p++ = '_';
+      out_file = fopen(fn, "w");
+      if (out_file)
+	printf(" - Write to file %s", fn);
+      else {
+	printf("\n");
+	perror(fn);
+      }
+      free(fn);
+      if (!out_file)
+	return 1;
+    } else {
+      printf(" - \"%.*s\"", len, data);
     }
-    if (asprintf(&fn, "%s%s%.*s", file_dir,
-		 (file_dir[strlen(file_dir)-1]=='/'? "" : "/"),
-		 len*2-4, data+4) < 0) {
-      fprintf(stderr, "Out of memory\n");
-      return 1;
-    }
-    p = &fn[strlen(file_dir)-1];
-    if (*p!='/') p++;
-    p++;
-    while ((p=strchr(p, '/')))
-      *p++ = '_';
-    out_file = fopen(fn, "w");
-    if (out_file)
-      printf(" - Write to file %s", fn);
-    else {
-      printf("\n");
-      perror(fn);
-    }
-    free(fn);
-    if (!out_file)
-      return 1;
-  } else if (type == 0) {
-    printf(" - \"%.*s\"", len*2-4, data+4);
   }
   if (type == 2) {
     unsigned i, hdrcsum, csum = 0;
