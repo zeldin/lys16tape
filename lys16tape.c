@@ -56,7 +56,7 @@ static int analyze_block(const unsigned char *header, const unsigned char *data)
     num_blocks = 0;
     num_csum_errors = 0;
   }
-  if (type == 0) {
+  if (type == 0 && len >= 2) {
     char *title = malloc(len*2-4);
     unsigned title_len = pack_title(title, data+4, len*2-4);
     if (!title) {
