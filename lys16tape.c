@@ -31,17 +31,20 @@ static const char *file_dir = NULL;
 static unsigned num_blocks = 0, num_csum_errors = 0;
 static unsigned num_stopbits = 1;
 static unsigned atew_mode = 0;
+static unsigned raw_mode = 0;
 
-static unsigned pack_title(unsigned char *data, unsigned len)
+static unsigned pack_title(char *title, const unsigned char *data, unsigned len)
 {
   unsigned i, j;
+  if (!title)
+    return 0;
   for (i=j=0; i<len; i++)
     if (data[i])
-      data[j++] = data[i];
+      title[j++] = data[i];
   return j;
 }
 
-static int analyze_block(const unsigned char *header, unsigned char *data)
+static int analyze_block(const unsigned char *header, const unsigned char *data)
 {
   static const char *types[] = { "TITLE", "???", "DATA", "END" };
   int transient = 0;
@@ -54,7 +57,12 @@ static int analyze_block(const unsigned char *header, unsigned char *data)
     num_csum_errors = 0;
   }
   if (type == 0) {
-    len = pack_title(data += 4, len*2 - 4);
+    char *title = malloc(len*2-4);
+    unsigned title_len = pack_title(title, data+4, len*2-4);
+    if (!title) {
+      fprintf(stderr, "Out of memory\n");
+      return 1;
+    }
     if (file_dir != NULL) {
       char *fn, *p;
       if (out_file != NULL) {
@@ -63,7 +71,8 @@ static int analyze_block(const unsigned char *header, unsigned char *data)
       }
       if (asprintf(&fn, "%s%s%.*s", file_dir,
 		   (file_dir[strlen(file_dir)-1]=='/'? "" : "/"),
-		   len, data) < 0) {
+		   title_len, title) < 0) {
+	free(title);
 	fprintf(stderr, "Out of memory\n");
 	return 1;
       }
@@ -80,11 +89,14 @@ static int analyze_block(const unsigned char *header, unsigned char *data)
 	perror(fn);
       }
       free(fn);
-      if (!out_file)
+      if (!out_file) {
+	free(title);
 	return 1;
+      }
     } else {
-      printf(" - \"%.*s\"", len, data);
+      printf(" - \"%.*s\"", title_len, title);
     }
+    free(title);
   }
   if (type == 2) {
     unsigned i, hdrcsum, csum = 0;
@@ -102,7 +114,7 @@ static int analyze_block(const unsigned char *header, unsigned char *data)
       printf(" csum mismatch %04x != %04x (%04x)", csum, hdrcsum, (hdrcsum-csum)&0xffff);
       num_csum_errors++;
     }
-    if (out_file != NULL)
+    if (out_file != NULL && !raw_mode)
       fwrite(data+8, 2, len-4, out_file);
   }
   if (type == 3) {
@@ -113,6 +125,11 @@ static int analyze_block(const unsigned char *header, unsigned char *data)
       printf(" all ok");
     num_blocks = 0;
     num_csum_errors = 0;
+  }
+  if (raw_mode && out_file != NULL) {
+    fputc(2, out_file);
+    fwrite(header, 4, 1, out_file);
+    fwrite(data, 2, len, out_file);
   }
   if (type == 3 && out_file != NULL) {
     fclose(out_file);
@@ -178,6 +195,8 @@ static int got_bits(unsigned n, unsigned data, unsigned bitcnt)
       if (!len) {
 	printf("*** EMPTY block!?\n");
 	mode = WAIT_HEADER;
+	if (analyze_block(header, databuf))
+	  return 1;
       }
     }
   } else {
@@ -418,18 +437,19 @@ static const char usage[] =
   "  -e pos      End position for gnuplot data\n"
   "  -D file     Write raw data to file, use %%u for index number\n"
   "  -F dir      Extract files into dir, load address will be discarded\n"
+  "  -R dir      Extract raw files into dir, keep block headers and load addr\n"
 ;
 
 int main(int argc, char *argv[])
 {
   const char *fn, *gnuplot_fn = NULL;
-  int r, opt;
+  int r, opt, dirmode=0;
   FILE *f;
   unsigned rate;
   const char *mix = "1";
   unsigned baud = 600, k = 0;
 
-  while ((opt = getopt(argc, argv, "lrma12k:b:G:s:e:D:F:")) != -1)
+  while ((opt = getopt(argc, argv, "lrma12k:b:G:s:e:D:F:R:")) != -1)
     switch (opt) {
     case 'l': mix = "1"; break;
     case 'r': mix = "2"; break;
@@ -457,10 +477,18 @@ int main(int argc, char *argv[])
 	return 1;
       data_fn = optarg;
       break;
+    case 'R':
+      raw_mode = 1;
+      /* FALLTHRU */
     case 'F':
+      if (dirmode && dirmode != opt) {
+	fprintf(stderr, "Can't specify both -F and -R (make two runs instead)\n");
+	return 1;
+      }
       if (check_dir(optarg))
 	return 1;
       file_dir = optarg;
+      dirmode = opt;
       break;
     default:
       fprintf(stderr, usage, argv[0]);
